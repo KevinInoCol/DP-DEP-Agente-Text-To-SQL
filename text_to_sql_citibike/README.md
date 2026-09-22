@@ -40,6 +40,8 @@ text_to_sql_citibike/
 │   └── resultados_cache.py      ← caché por consulta_id (la tool de gráficos lee de aquí, no del LLM)
 ├── ui/
 │   └── graficos.py              ← dibuja la especificación con Plotly (capa de presentación)
+├── observabilidad/
+│   └── tool_tracer.py           ← callback handler: qué tools usó el agente, en qué orden y cuánto tardaron
 ├── chat_history/
 │   ├── memory_store.py          ← checkpointer InMemorySaver (memoria de la sesión)
 │   └── feedback_store.py        ← log .jsonl con las calificaciones y comentarios del usuario
@@ -61,6 +63,7 @@ text_to_sql_citibike/
 | Resultados, profundidad de Tavily   | `tools/internet.py` / `.env` |
 | Campos de la especificación         | `subagents/grafico.py`   |
 | Colores, tamaños, estilo del gráfico| `ui/graficos.py`         |
+| Cómo se resume cada tool en la traza| `observabilidad/tool_tracer.py` |
 | Memoria persistente (Postgres)      | `chat_history/memory_store.py` |
 | Destino del feedback (Postgres, LangSmith) | `chat_history/feedback_store.py` |
 | Canal (Streamlit → FastAPI/CLI)     | `app.py`                 |
@@ -94,6 +97,11 @@ text_to_sql_citibike/
 6. `agent.preguntar_detallado()` extrae de los `ToolMessage` del turno las consultas SQL, los
    gráficos y las fuentes web; `app.py` dibuja los gráficos con `ui.construir_figura()` y lista
    las fuentes en un desplegable debajo de la respuesta.
+7. En paralelo, un `TrazadorDeTools` (callback handler de LangChain, uno nuevo por turno) registra
+   **qué tools eligió el agente**, en qué orden, con qué argumentos, cuánto tardó cada una y con
+   qué resultado. La interfaz lo muestra como línea de tiempo desplegable, p. ej.
+   `🧭 2 tool(s): 🗄️ Consulta a BigQuery → 📊 Subagente de gráficos · 3.6 s`, incluidos los
+   intentos fallidos que el agente corrigió.
 
 ## Instalación
 
@@ -149,6 +157,9 @@ La librería de Google la toma automáticamente; no hace falta código extra.
 
 # Probar la búsqueda web (requiere TAVILY_API_KEY)
 .venv/bin/python -m tools.internet
+
+# Probar el trazador de tools con eventos simulados
+.venv/bin/python -m observabilidad.tool_tracer
 ```
 
 La interfaz muestra cada respuesta del agente (SQL, resultado, interpretación), el gráfico
@@ -158,7 +169,9 @@ BigQuery con los GB procesados, incluidos los intentos fallidos que el agente co
 
 Debajo de cada respuesta hay una **calificación** (👍 / 👎) y un campo de comentario. Cada envío
 se guarda como una línea JSON en `FEEDBACK_PATH` (por defecto `feedback/feedback.jsonl`,
-ignorado por git) con la pregunta, la respuesta, el SQL ejecutado, los gráficos y el `thread_id`.
+ignorado por git) con la pregunta, la respuesta, el SQL ejecutado, los gráficos, la traza de
+tools (nombre, éxito y duración de cada una) y el `thread_id`. Así un 👎 llega acompañado de qué
+hizo el agente para producir esa respuesta.
 La barra lateral muestra el acumulado. Ese archivo es la materia prima para revisar qué
 preguntas responde mal el agente y construir un dataset de evaluación.
 
@@ -187,6 +200,9 @@ Ejemplos de preguntas:
   transcripción de cifras y ahorra tokens.
 - **Un solo eje Y, un hue para magnitud, paleta categórica fija** (skill `dataviz`): sin
   ejes dobles ni pasteles de más de 6 sectores.
+- **La traza se captura con callbacks, no leyendo los mensajes.** Los `ToolMessage` dicen qué
+  devolvió cada tool, pero no cuándo empezó ni cuánto tardó; la duración es justo lo que permite
+  ver si la lentitud viene de BigQuery, del subagente o de la web.
 - **Internet es la última fuente y nunca manda.** La tool se llama después de BigQuery y del
   gráfico, máximo dos veces por respuesta, y el prompt prohíbe corregir cifras de la base con lo
   leído en la web. Además prohíbe inventar URLs: en pruebas sin la tool el modelo fabricaba

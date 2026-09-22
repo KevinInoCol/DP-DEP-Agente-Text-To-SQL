@@ -32,6 +32,7 @@ def guardar_feedback(
     comentario: str = "",
     consultas: list[dict] | None = None,
     graficos: list[dict] | None = None,
+    traza: list[dict] | None = None,
 ) -> dict:
     """Añade una línea al .jsonl y devuelve el registro guardado."""
     if calificacion is not None and calificacion not in CALIFICACIONES:
@@ -45,6 +46,10 @@ def guardar_feedback(
         "respuesta": respuesta,
         "sql": [c.get("sql") for c in (consultas or []) if c.get("ok")],
         "graficos": [{"tipo": g.get("tipo"), "titulo": g.get("titulo")} for g in (graficos or [])],
+        "traza": [
+            {"orden": t.get("orden"), "tool": t.get("tool"), "ok": t.get("ok"), "duracion_s": t.get("duracion_s")}
+            for t in (traza or [])
+        ],
     }
     RUTA_FEEDBACK.parent.mkdir(parents=True, exist_ok=True)
     with open(RUTA_FEEDBACK, "a", encoding="utf-8") as f:

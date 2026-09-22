@@ -4,8 +4,8 @@ Entrypoint web del agente Text-to-SQL sobre CitiBike: chat en Streamlit.
 Capa de I/O: recibe la pregunta del usuario, la pasa a agent.preguntar_detallado()
 y muestra la respuesta (SQL generado + resultado + interpretación). Si el agente
 llamó al subagente de gráficos, dibuja la figura con Plotly debajo de la respuesta.
-Un desplegable enseña las consultas que la tool ejecutó en BigQuery y los GB
-procesados. Debajo de cada respuesta hay una calificación (pulgar arriba/abajo)
+Un desplegable enseña la traza de tools: qué eligió el agente, en qué orden, con
+qué argumentos, cuánto tardó cada una y con qué resultado. Debajo de cada respuesta hay una calificación (pulgar arriba/abajo)
 y un campo de comentario; cada envío se guarda en chat_history/feedback_store. Mantiene un thread_id por sesión de navegador para que el
 agente recuerde el contexto de la conversación.
 
@@ -25,6 +25,7 @@ from dotenv import load_dotenv
 
 import agent
 from chat_history import guardar_feedback, resumen_feedback
+from observabilidad import etiqueta_tool
 from tools import BQ_TABLE, internet_disponible
 from ui import construir_figura
 
@@ -73,22 +74,41 @@ def nueva_conversacion() -> None:
     st.session_state.mensajes = []
 
 
-def render_consultas(consultas: list[dict]) -> None:
-    """Desplegable con el SQL ejecutado por la tool y sus métricas."""
-    if not consultas:
+def _titulo_traza(traza: list[dict]) -> str:
+    """Resumen de una línea para el encabezado: pasos consecutivos iguales se agrupan (×2)."""
+    pasos: list[list] = []
+    for t in traza:
+        icono, nombre = etiqueta_tool(t["tool"])
+        etiqueta = f"{icono} {nombre}"
+        if pasos and pasos[-1][0] == etiqueta:
+            pasos[-1][1] += 1
+        else:
+            pasos.append([etiqueta, 1])
+    cadena = " → ".join(e if n == 1 else f"{e} ×{n}" for e, n in pasos)
+    total = sum(t.get("duracion_s") or 0 for t in traza)
+    return f"🧭 {len(traza)} tool(s): {cadena} · {total:.1f} s"
+
+
+def render_traza(traza: list[dict]) -> None:
+    """Línea de tiempo de las tools que el agente decidió usar en este turno."""
+    if not traza:
+        st.caption("🧭 El agente respondió sin usar ninguna tool.")
         return
-    with st.expander(f"🔍 {len(consultas)} consulta(s) ejecutada(s) en BigQuery"):
-        for i, c in enumerate(consultas, 1):
-            estado = "✅" if c["ok"] else "❌"
-            st.markdown(f"**Intento {i}** {estado}")
-            st.code(c["sql"] or "", language="sql")
-            if c["ok"]:
-                st.caption(
-                    f"{c['filas_devueltas']} fila(s) devuelta(s) · "
-                    f"{c['gb_procesados']} GB procesados"
-                )
-            else:
-                st.caption(f"Error: {c['error']}")
+    with st.expander(_titulo_traza(traza)):
+        for paso in traza:
+            icono, nombre = etiqueta_tool(paso["tool"])
+            estado = "✅" if paso.get("ok") else ("❌" if paso.get("ok") is False else "⏳")
+            duracion = f"{paso['duracion_s']:.2f} s" if paso.get("duracion_s") is not None else "—"
+            st.markdown(f"**{paso['orden']}. {icono} {nombre}** · {estado} · {duracion}")
+            if paso.get("resumen"):
+                st.caption(paso["resumen"])
+            argumentos = paso.get("argumentos") or {}
+            if "sql" in argumentos:
+                st.code(argumentos["sql"], language="sql")
+            otros = {k: v for k, v in argumentos.items() if k != "sql"}
+            if otros:
+                st.caption(" · ".join(f"`{k}`: {v}" for k, v in otros.items()))
+            st.caption(f"tool: `{paso['tool']}`")
 
 
 def render_graficos(graficos: list[dict], clave: str) -> None:
@@ -152,6 +172,7 @@ def render_feedback(m: dict, indice: int) -> None:
             comentario=comentario,
             consultas=m.get("consultas"),
             graficos=m.get("graficos"),
+            traza=m.get("traza"),
         )
         m["feedback"] = {"calificacion": calificacion, "comentario": comentario.strip()}
         st.rerun()
@@ -173,7 +194,7 @@ def render_mensaje(m: dict, indice: int) -> None:
         st.markdown(m["contenido"])
         if m["rol"] == "assistant":
             render_graficos(m.get("graficos", []), clave=f"hist-{indice}")
-            render_consultas(m.get("consultas", []))
+            render_traza(m.get("traza", []))
             render_fuentes_web(m.get("fuentes_web", []))
             render_feedback(m, indice)
 
@@ -198,6 +219,7 @@ def responder(pregunta: str) -> None:
                     "consultas": [],
                     "graficos": [],
                     "fuentes_web": [],
+                    "traza": [],
                 }
 
     st.session_state.mensajes.append(
@@ -207,6 +229,7 @@ def responder(pregunta: str) -> None:
             "consultas": salida["consultas"],
             "graficos": salida["graficos"],
             "fuentes_web": salida.get("fuentes_web", []),
+            "traza": salida.get("traza", []),
             "feedback": None,
         }
     )

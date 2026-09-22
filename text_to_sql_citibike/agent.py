@@ -2,9 +2,10 @@
 Orquestador del agente Text-to-SQL sobre CitiBike (BigQuery).
 
 Ensambla las piezas: LLM (model_config/), system prompt (prompt/), tools de
-BigQuery, gráficos e internet (tools/), subagente de visualización (subagents/)
-y memoria (chat_history/). No contiene lógica de negocio. La tool de internet
-solo se registra si hay TAVILY_API_KEY; el prompt se adapta en consecuencia.
+BigQuery, gráficos e internet (tools/), subagente de visualización (subagents/),
+memoria (chat_history/) y traza de tools (observabilidad/). No contiene lógica
+de negocio. La tool de internet solo se registra si hay TAVILY_API_KEY; el
+prompt se adapta en consecuencia.
 
 Patrón: init_resources() se llama UNA vez al arrancar y deja singletons de
 módulo; build_agent() es barato y se puede llamar por mensaje.
@@ -25,6 +26,7 @@ from langchain.messages import ToolMessage
 from dotenv import load_dotenv
 
 from chat_history import get_checkpointer
+from observabilidad import TrazadorDeTools
 from subagents import init_grafico_agent
 from tools import (
     BQ_TABLE,
@@ -126,14 +128,18 @@ def preguntar_detallado(pregunta: str, thread_id: str = "default") -> dict:
     Devuelve {"respuesta": str,
               "consultas": [{"sql", "ok", "gb_procesados", "filas_devueltas", "error"}],
               "graficos": [dict "grafico" listo para ui.construir_figura],
-              "fuentes_web": [{"consulta", "titulo", "url", "extracto", "puntuacion"}]}.
+              "fuentes_web": [{"consulta", "titulo", "url", "extracto", "puntuacion"}],
+              "traza": [{"orden", "tool", "argumentos", "ok", "resumen", "duracion_s"}]}.
+    La traza la produce un TrazadorDeTools nuevo por turno (callback handler), de
+    modo que refleja exactamente las tools que el agente eligió en esta llamada.
     Las listas se extraen de los ToolMessage generados en ESTE turno (los
     anteriores ya están en el checkpointer), distinguidos por el nombre de la tool.
     """
     agent = build_agent()
+    trazador = TrazadorDeTools()
     resultado = agent.invoke(
         {"messages": [{"role": "user", "content": pregunta}]},
-        {"configurable": {"thread_id": thread_id}},
+        {"configurable": {"thread_id": thread_id}, "callbacks": [trazador]},
     )
     mensajes = resultado["messages"]
     # Índice del último mensaje humano: todo lo posterior pertenece a este turno.
@@ -165,6 +171,7 @@ def preguntar_detallado(pregunta: str, thread_id: str = "default") -> dict:
         "consultas": consultas,
         "graficos": graficos,
         "fuentes_web": fuentes_web,
+        "traza": trazador.traza(),
     }
 
 
