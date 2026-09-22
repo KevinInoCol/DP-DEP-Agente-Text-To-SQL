@@ -1,0 +1,12 @@
+# Secretos y credenciales
+.env
+*.json
+!.env.example
+
+# Entornos y caches de Python
+.venv/
+__pycache__/
+*.pyc
+
+# Sistema
+.DS_Store
