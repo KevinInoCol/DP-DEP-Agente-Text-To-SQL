@@ -23,7 +23,12 @@ from langchain.messages import ToolMessage
 from dotenv import load_dotenv
 
 from chat_history import get_checkpointer
-from tools import BQ_TABLE, get_consultar_bigquery_tool, obtener_esquema_tabla
+from tools import (
+    BQ_TABLE,
+    get_consultar_bigquery_tool,
+    obtener_esquema_tabla,
+    obtener_metadatos_tabla,
+)
 
 load_dotenv()
 
@@ -46,11 +51,17 @@ def _render_system_prompt() -> str:
     """Carga el YAML del prompt e inyecta los placeholders con .replace()."""
     prompt_cfg = _cargar_yaml(RUTA_SYSTEM_PROMPT)
     esquema = obtener_esquema_tabla()
-    esquema_txt = "\n".join(f"  - {nombre}: {tipo}" for nombre, tipo in esquema)
+    meta = obtener_metadatos_tabla()
+    esquema_txt = "\n".join(
+        f"  - {c['nombre']} ({c['tipo']}, {c['modo']}): {c['descripcion'] or 'sin descripción'}"
+        for c in esquema
+    )
     return (
         prompt_cfg["system_prompt"]
         .replace("{tabla_completa}", BQ_TABLE)
         .replace("{esquema_tabla}", esquema_txt)
+        .replace("{total_filas}", f"{meta['total_filas']:,}")
+        .replace("{gb_tabla}", str(meta["gb_tabla"]))
     )
 
 

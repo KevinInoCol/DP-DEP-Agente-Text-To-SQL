@@ -152,10 +152,32 @@ def consultar_bigquery(sql: str) -> dict:
         return {"ok": False, "sql": sql, "error": f"Error inesperado: {type(e).__name__}: {e}"}
 
 
-def obtener_esquema_tabla() -> list[tuple[str, str]]:
-    """Lee el esquema real de la tabla desde BigQuery. Se usa para inyectarlo en el prompt."""
+def obtener_esquema_tabla() -> list[dict]:
+    """
+    Lee el esquema real de la tabla desde BigQuery, incluida la descripción de cada
+    columna que mantiene el dataset público. Se usa para inyectarlo en el prompt.
+
+    Devuelve una lista de dicts: {"nombre", "tipo", "modo", "descripcion"}.
+    """
     tabla = get_client().get_table(BQ_TABLE)
-    return [(campo.name, campo.field_type) for campo in tabla.schema]
+    return [
+        {
+            "nombre": campo.name,
+            "tipo": campo.field_type,
+            "modo": campo.mode,
+            "descripcion": campo.description or "",
+        }
+        for campo in tabla.schema
+    ]
+
+
+def obtener_metadatos_tabla() -> dict:
+    """Tamaño de la tabla, para que el prompt sepa cuánto cuesta leerla entera."""
+    tabla = get_client().get_table(BQ_TABLE)
+    return {
+        "total_filas": tabla.num_rows,
+        "gb_tabla": round((tabla.num_bytes or 0) / 1024**3, 2),
+    }
 
 
 def get_consultar_bigquery_tool():

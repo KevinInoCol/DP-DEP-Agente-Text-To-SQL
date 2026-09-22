@@ -40,8 +40,13 @@ text_to_sql_citibike/
 
 ## Cómo funciona
 
-1. `agent.init_resources()` carga el modelo, lee el **esquema real** de la tabla desde
-   BigQuery y lo inyecta en el prompt (placeholders `{tabla_completa}`, `{esquema_tabla}`).
+1. `agent.init_resources()` carga el modelo, lee desde BigQuery el **esquema real** de la
+   tabla con la descripción oficial de cada columna y su tamaño, y lo inyecta en el prompt
+   (placeholders `{tabla_completa}`, `{esquema_tabla}`, `{total_filas}`, `{gb_tabla}`).
+   El prompt añade una `<Guia_De_Columnas>` con la semántica y los valores reales de cada
+   campo: unidades, cobertura temporal (jul 2013 – may 2018), registros incompletos,
+   outliers de `birth_year` y `tripduration`, columna `customer_plan` vacía, cómo calcular
+   edad y distancia.
 2. El usuario pregunta. `create_agent` ejecuta el bucle: el LLM escribe SQL → llama a
    `consultar_bigquery_tool` → lee el JSON → responde (o corrige y reintenta si `ok: false`).
 3. La tool solo acepta `SELECT` / `WITH`, rechaza DML/DDL por regex, hace un **dry run**
