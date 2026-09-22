@@ -12,7 +12,7 @@ Dos agentes, tres tools:
   decide cuándo llamarla y corrige el SQL si BigQuery devuelve un error.
 - El **subagente de gráficos** (`subagents/grafico.py`) es un segundo `create_agent` con
   salida estructurada (`response_format=EspecificacionGrafico`) y modelo propio
-  (`gpt-4.1-mini`). Se expone al principal como tool (`tools/grafico.py`): decide el tipo de
+  (configurable aparte). Se expone al principal como tool (`tools/grafico.py`): decide el tipo de
   gráfico y las columnas; la interfaz lo dibuja con Plotly.
 - La **búsqueda en internet** con Tavily (`tools/internet.py`) es una tool opcional y
   subordinada: solo añade contexto cualitativo (por qué una ruta es popular, qué explica un
@@ -27,7 +27,7 @@ recortada a lo que un agente básico necesita (sin RAG ni CRM):
 
 ```
 text_to_sql_citibike/
-├── model_config/model.yaml      ← llm (gpt-4.1) del agente principal, llm_grafico (gpt-4.1-mini) del subagente
+├── model_config/model.yaml      ← llm (gpt-5.1) del agente principal y llm_grafico del subagente
 ├── prompt/
 │   ├── system_prompt.yaml       ← prompt del agente principal (YAML + tags XML)
 │   └── grafico_prompt.yaml      ← prompt del subagente de gráficos

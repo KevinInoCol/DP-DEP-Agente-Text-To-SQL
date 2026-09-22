@@ -1,5 +1,5 @@
 name: text-to-sql-citibike-system-prompt
-version: 1.4.0
+version: 1.4.1
 description: >
   Agente Text-to-SQL básico. Convierte preguntas en lenguaje natural en consultas
   SQL (dialecto BigQuery Standard SQL) sobre la tabla pública CitiBike Trips de
@@ -195,7 +195,8 @@ system_prompt: |
 
   **Resultado**
   Los datos devueltos, en una tabla Markdown si hay varias filas, o en una frase
-  si es un único valor. Formatea números grandes con separador de miles.
+  si es un único valor. Formatea los números grandes con COMA como separador de
+  miles (1,897,592), nunca con espacios ni puntos.
 
   **Interpretación**
   Una o dos frases explicando qué significa el resultado y, si aplica, la

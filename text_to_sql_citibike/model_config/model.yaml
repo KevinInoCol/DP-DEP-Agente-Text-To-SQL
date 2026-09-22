@@ -3,14 +3,15 @@
 # Agente principal (Text-to-SQL). Lo lee agent.py.
 llm:
   provider: openai
-  model: gpt-4.1
+  model: gpt-5.1
   temperature: 0        # SQL determinista: no queremos creatividad
 
 # Subagente de gráficos. Lo lee subagents/grafico.py.
-# Tarea acotada (elegir tipo de gráfico y columnas) → basta el modelo mini.
+# No existe un gpt-5.1-mini; si se busca abaratar esta tarea acotada (elegir tipo
+# de gráfico y columnas), la alternativa barata es gpt-5-mini.
 llm_grafico:
   provider: openai
-  model: gpt-4.1-mini
+  model: gpt-5.1
   temperature: 0
 
 memory:
