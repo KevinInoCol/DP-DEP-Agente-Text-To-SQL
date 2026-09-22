@@ -35,7 +35,8 @@ text_to_sql_citibike/
 ├── ui/
 │   └── graficos.py              ← dibuja la especificación con Plotly (capa de presentación)
 ├── chat_history/
-│   └── memory_store.py          ← checkpointer InMemorySaver (memoria de la sesión)
+│   ├── memory_store.py          ← checkpointer InMemorySaver (memoria de la sesión)
+│   └── feedback_store.py        ← log .jsonl con las calificaciones y comentarios del usuario
 ├── agent.py                     ← orquestador: create_agent(model, tools=[bigquery, grafico], ...)
 ├── app.py                       ← entrypoint web: chat en Streamlit con gráficos
 ├── requirements.txt
@@ -52,7 +53,8 @@ text_to_sql_citibike/
 | Criterios para elegir el gráfico    | `prompt/grafico_prompt.yaml` |
 | Campos de la especificación         | `subagents/grafico.py`   |
 | Colores, tamaños, estilo del gráfico| `ui/graficos.py`         |
-| Memoria persistente (Postgres)      | `chat_history/`          |
+| Memoria persistente (Postgres)      | `chat_history/memory_store.py` |
+| Destino del feedback (Postgres, LangSmith) | `chat_history/feedback_store.py` |
 | Canal (Streamlit → FastAPI/CLI)     | `app.py`                 |
 
 ## Cómo funciona
@@ -128,10 +130,16 @@ La librería de Google la toma automáticamente; no hace falta código extra.
 .venv/bin/python -m tools.grafico
 ```
 
-La interfaz muestra cada respuesta del agente (SQL, resultado, interpretación) y, en un
-desplegable, las consultas que la tool ejecutó realmente en BigQuery con los GB
-procesados, incluidos los intentos fallidos que el agente corrigió. El botón
+La interfaz muestra cada respuesta del agente (SQL, resultado, interpretación), el gráfico
+elegido por el subagente y, en un desplegable, las consultas que la tool ejecutó realmente en
+BigQuery con los GB procesados, incluidos los intentos fallidos que el agente corrigió. El botón
 "Nueva conversación" genera un `thread_id` nuevo y vacía la memoria.
+
+Debajo de cada respuesta hay una **calificación** (👍 / 👎) y un campo de comentario. Cada envío
+se guarda como una línea JSON en `FEEDBACK_PATH` (por defecto `feedback/feedback.jsonl`,
+ignorado por git) con la pregunta, la respuesta, el SQL ejecutado, los gráficos y el `thread_id`.
+La barra lateral muestra el acumulado. Ese archivo es la materia prima para revisar qué
+preguntas responde mal el agente y construir un dataset de evaluación.
 
 Ejemplos de preguntas:
 

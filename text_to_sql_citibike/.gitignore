@@ -8,3 +8,6 @@ __pycache__/
 
 # Claves de cuentas de servicio
 credentials/
+
+# Feedback local de los usuarios
+feedback/
