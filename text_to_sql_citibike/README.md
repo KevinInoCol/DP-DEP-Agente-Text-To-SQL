@@ -25,6 +25,7 @@ text_to_sql_citibike/
 ├── agent.py                     ← orquestador: create_agent(model, tools, system_prompt, checkpointer)
 ├── app.py                       ← entrypoint web: chat en Streamlit
 ├── requirements.txt
+├── credentials/                 ← clave JSON de la cuenta de servicio (ignorada por git)
 ├── .env.example
 └── .gitignore
 ```
@@ -68,8 +69,15 @@ gcloud auth application-default login
 # elige en el navegador la cuenta que es dueña del proyecto de GOOGLE_CLOUD_PROJECT
 ```
 
-Opción B (servidores / CI): cuenta de servicio con rol BigQuery Job User y
-`GOOGLE_APPLICATION_CREDENTIALS=/ruta/al/service-account.json` en `.env`.
+Opción B (recomendada si tu gcloud usa otra cuenta, o en servidores / CI): una cuenta de
+servicio con el rol **BigQuery Job User** en el proyecto. Guarda su clave JSON en
+`credentials/` (carpeta ignorada por git) y apunta a ella en `.env`:
+
+```
+GOOGLE_APPLICATION_CREDENTIALS=credentials/<archivo-de-clave>.json
+```
+
+La librería de Google la toma automáticamente; no hace falta código extra.
 
 ## Uso
 

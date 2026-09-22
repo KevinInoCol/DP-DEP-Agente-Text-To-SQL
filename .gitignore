@@ -10,3 +10,6 @@ __pycache__/
 
 # Sistema
 .DS_Store
+
+# Claves de cuentas de servicio
+credentials/
