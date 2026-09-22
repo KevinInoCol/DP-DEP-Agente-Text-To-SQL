@@ -25,7 +25,7 @@ from dotenv import load_dotenv
 
 import agent
 from chat_history import guardar_feedback, resumen_feedback
-from tools import BQ_TABLE
+from tools import BQ_TABLE, internet_disponible
 from ui import construir_figura
 
 load_dotenv()
@@ -157,12 +157,24 @@ def render_feedback(m: dict, indice: int) -> None:
         st.rerun()
 
 
+def render_fuentes_web(fuentes: list[dict]) -> None:
+    """Desplegable con las fuentes de internet que el agente consultó (Tavily)."""
+    if not fuentes:
+        return
+    with st.expander(f"🌐 {len(fuentes)} fuente(s) web consultada(s) como contexto complementario"):
+        st.caption("La búsqueda web solo aporta contexto; las cifras provienen siempre de BigQuery.")
+        for f in fuentes:
+            st.markdown(f"**[{f['titulo']}]({f['url']})**  \n{f['extracto']}")
+            st.caption(f"Búsqueda: \"{f['consulta']}\" · relevancia {f['puntuacion']}")
+
+
 def render_mensaje(m: dict, indice: int) -> None:
     with st.chat_message(m["rol"]):
         st.markdown(m["contenido"])
         if m["rol"] == "assistant":
             render_graficos(m.get("graficos", []), clave=f"hist-{indice}")
             render_consultas(m.get("consultas", []))
+            render_fuentes_web(m.get("fuentes_web", []))
             render_feedback(m, indice)
 
 
@@ -185,6 +197,7 @@ def responder(pregunta: str) -> None:
                     "respuesta": f"❌ Ocurrió un error al procesar la pregunta: `{type(e).__name__}: {e}`",
                     "consultas": [],
                     "graficos": [],
+                    "fuentes_web": [],
                 }
 
     st.session_state.mensajes.append(
@@ -193,6 +206,7 @@ def responder(pregunta: str) -> None:
             "contenido": salida["respuesta"],
             "consultas": salida["consultas"],
             "graficos": salida["graficos"],
+            "fuentes_web": salida.get("fuentes_web", []),
             "feedback": None,
         }
     )
@@ -202,7 +216,7 @@ def responder(pregunta: str) -> None:
 def main() -> None:
     st.set_page_config(page_title=TITULO, page_icon="🚲", layout="wide")
     st.title(f"🚲 {TITULO}")
-    st.caption(f"Pregunta en lenguaje natural sobre `{BQ_TABLE}`. El agente genera el SQL, lo ejecuta, lo explica y un subagente elige el gráfico.")
+    st.caption(f"Pregunta en lenguaje natural sobre `{BQ_TABLE}`. El agente genera el SQL, lo ejecuta, lo explica, un subagente elige el gráfico y, si aporta, complementa con contexto de internet.")
 
     faltantes = verificar_configuracion()
     if faltantes:
@@ -231,6 +245,7 @@ def main() -> None:
         st.caption("Se guarda en el archivo indicado por FEEDBACK_PATH.")
         st.divider()
         st.caption(f"Proyecto GCP: `{GOOGLE_CLOUD_PROJECT}`")
+        st.caption("🌐 Búsqueda web: " + ("activa (Tavily)" if internet_disponible() else "no configurada (falta TAVILY_API_KEY)"))
 
     for i, m in enumerate(st.session_state.mensajes):
         render_mensaje(m, indice=i)

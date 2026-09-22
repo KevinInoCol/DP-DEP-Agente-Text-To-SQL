@@ -7,6 +7,7 @@ from .bigquery import (
     validar_solo_lectura,
 )
 from .grafico import generar_grafico, get_generar_grafico_tool
+from .internet import buscar_en_internet, esta_disponible as internet_disponible, get_buscar_en_internet_tool
 from .resultados_cache import guardar_resultado, obtener_resultado
 
 __all__ = [
@@ -17,6 +18,9 @@ __all__ = [
     "obtener_metadatos_tabla",
     "validar_solo_lectura",
     "generar_grafico",
+    "buscar_en_internet",
+    "internet_disponible",
+    "get_buscar_en_internet_tool",
     "get_generar_grafico_tool",
     "guardar_resultado",
     "obtener_resultado",

@@ -6,7 +6,7 @@ BigQuery, lo ejecuta contra la tabla pública
 el SQL generado, el resultado, una interpretación y, cuando el resultado es una tabla,
 **un gráfico** elegido por un segundo agente especialista.
 
-Dos agentes, dos tools:
+Dos agentes, tres tools:
 
 - La conexión a BigQuery es una **tool** del agente principal (`tools/bigquery.py`). El LLM
   decide cuándo llamarla y corrige el SQL si BigQuery devuelve un error.
@@ -14,6 +14,11 @@ Dos agentes, dos tools:
   salida estructurada (`response_format=EspecificacionGrafico`) y modelo propio
   (`gpt-4.1-mini`). Se expone al principal como tool (`tools/grafico.py`): decide el tipo de
   gráfico y las columnas; la interfaz lo dibuja con Plotly.
+- La **búsqueda en internet** con Tavily (`tools/internet.py`) es una tool opcional y
+  subordinada: solo añade contexto cualitativo (por qué una ruta es popular, qué explica un
+  pico) después de que BigQuery ya respondió. Jerarquía fijada en el prompt: BigQuery >
+  conocimiento general > internet. Sin `TAVILY_API_KEY` la tool no se registra y el agente
+  funciona igual.
 
 ## Estructura
 
@@ -31,6 +36,7 @@ text_to_sql_citibike/
 ├── tools/
 │   ├── bigquery.py              ← tool: valida solo-lectura, dry run, ejecuta, devuelve JSON + consulta_id
 │   ├── grafico.py               ← tool: envuelve al subagente, valida columnas, prepara datos del gráfico
+│   ├── internet.py              ← tool: búsqueda web con Tavily, solo contexto complementario (opcional)
 │   └── resultados_cache.py      ← caché por consulta_id (la tool de gráficos lee de aquí, no del LLM)
 ├── ui/
 │   └── graficos.py              ← dibuja la especificación con Plotly (capa de presentación)
@@ -51,6 +57,8 @@ text_to_sql_citibike/
 | Cómo razona / formato de respuesta  | `prompt/system_prompt.yaml` |
 | Límites de GB, filas, validación SQL| `tools/bigquery.py`      |
 | Criterios para elegir el gráfico    | `prompt/grafico_prompt.yaml` |
+| Cuándo y cómo usar internet         | `prompt/system_prompt.yaml` (Reglas_De_Busqueda_Web) |
+| Resultados, profundidad de Tavily   | `tools/internet.py` / `.env` |
 | Campos de la especificación         | `subagents/grafico.py`   |
 | Colores, tamaños, estilo del gráfico| `ui/graficos.py`         |
 | Memoria persistente (Postgres)      | `chat_history/memory_store.py` |
@@ -79,9 +87,13 @@ text_to_sql_citibike/
    `pastel`, `dispersion`), columnas, título, etiquetas. La tool valida que las columnas existan,
    degrada un pastel de más de 6 sectores a barras horizontales y devuelve la especificación con
    los datos ya preparados.
-5. `agent.preguntar_detallado()` extrae de los `ToolMessage` del turno tanto las consultas SQL
-   como los gráficos, y `app.py` dibuja cada gráfico con `ui.construir_figura()` debajo de la
-   respuesta.
+5. Si la pregunta pide un "por qué" o el contexto externo aporta valor, y hay `TAVILY_API_KEY`,
+   el agente hace 1 o 2 búsquedas con `buscar_en_internet_tool` **al final**, y añade una
+   sección "Contexto adicional (fuentes web)" en tono de hipótesis, con las URLs devueltas por la
+   tool. Solo puede citar URLs que la tool devolvió; sin tool, sin enlaces.
+6. `agent.preguntar_detallado()` extrae de los `ToolMessage` del turno las consultas SQL, los
+   gráficos y las fuentes web; `app.py` dibuja los gráficos con `ui.construir_figura()` y lista
+   las fuentes en un desplegable debajo de la respuesta.
 
 ## Instalación
 
@@ -90,6 +102,12 @@ uv venv --python 3.12 .venv
 uv pip install --python .venv/bin/python -r requirements.txt
 cp .env.example .env   # y completa OPENAI_API_KEY y GOOGLE_CLOUD_PROJECT
 ```
+
+### Búsqueda web (opcional)
+
+Crea una key gratuita en [tavily.com](https://tavily.com) y ponla en `.env` como
+`TAVILY_API_KEY`. `TAVILY_MAX_RESULTADOS` (4) y `TAVILY_SEARCH_DEPTH` (`basic`; `advanced`
+cuesta el doble de créditos) son opcionales. La barra lateral indica si está activa.
 
 ### Credenciales de Google Cloud
 
@@ -128,6 +146,9 @@ La librería de Google la toma automáticamente; no hace falta código extra.
 
 # Probar el subagente de gráficos con datos de ejemplo
 .venv/bin/python -m tools.grafico
+
+# Probar la búsqueda web (requiere TAVILY_API_KEY)
+.venv/bin/python -m tools.internet
 ```
 
 La interfaz muestra cada respuesta del agente (SQL, resultado, interpretación), el gráfico
@@ -166,6 +187,11 @@ Ejemplos de preguntas:
   transcripción de cifras y ahorra tokens.
 - **Un solo eje Y, un hue para magnitud, paleta categórica fija** (skill `dataviz`): sin
   ejes dobles ni pasteles de más de 6 sectores.
+- **Internet es la última fuente y nunca manda.** La tool se llama después de BigQuery y del
+  gráfico, máximo dos veces por respuesta, y el prompt prohíbe corregir cifras de la base con lo
+  leído en la web. Además prohíbe inventar URLs: en pruebas sin la tool el modelo fabricaba
+  enlaces plausibles, así que el prompt exige que toda URL provenga literalmente de un resultado
+  de la tool, y sin tool no hay sección de fuentes.
 - **La tool nunca lanza**: todo error vuelve como `{"ok": false, "error": ...}` para que
   el LLM lo lea y reintente (máximo 3 intentos, fijado en el prompt).
 - **Memoria en RAM**: suficiente para un agente básico de consola. Cambiar a
