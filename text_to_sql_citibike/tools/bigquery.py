@@ -11,7 +11,7 @@ supera BQ_MAX_BYTES_BILLED. La autenticación usa Application Default
 Credentials (gcloud auth application-default login) o GOOGLE_APPLICATION_CREDENTIALS.
 
 Ejecutar (prueba directa sin LLM):
-    python tools/bigquery.py
+    python -m tools.bigquery
 """
 
 import datetime as dt
@@ -25,6 +25,8 @@ from google.cloud import bigquery
 from langchain.tools import tool
 
 from dotenv import load_dotenv
+
+from tools.resultados_cache import guardar_resultado
 
 load_dotenv()
 
@@ -133,8 +135,10 @@ def consultar_bigquery(sql: str) -> dict:
         filas = [
             {k: _serializar(v) for k, v in dict(fila).items()} for fila in resultado
         ]
+        consulta_id = guardar_resultado(sql, filas)
         return {
             "ok": True,
+            "consulta_id": consulta_id,
             "sql": sql,
             "filas": filas,
             "total_filas": resultado.total_rows,

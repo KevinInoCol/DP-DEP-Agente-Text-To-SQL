@@ -5,3 +5,4 @@ google-cloud-bigquery>=3.30
 python-dotenv>=1.0
 pyyaml>=6.0
 streamlit>=1.40
+plotly>=5.24

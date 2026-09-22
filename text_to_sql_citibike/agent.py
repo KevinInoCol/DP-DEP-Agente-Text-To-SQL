@@ -1,8 +1,9 @@
 """
 Orquestador del agente Text-to-SQL sobre CitiBike (BigQuery).
 
-Ensambla las piezas: LLM (model_config/), system prompt (prompt/), tool de
-BigQuery (tools/) y memoria (chat_history/). No contiene lógica de negocio.
+Ensambla las piezas: LLM (model_config/), system prompt (prompt/), tools de
+BigQuery y de gráficos (tools/), subagente de visualización (subagents/) y
+memoria (chat_history/). No contiene lógica de negocio.
 
 Patrón: init_resources() se llama UNA vez al arrancar y deja singletons de
 módulo; build_agent() es barato y se puede llamar por mensaje.
@@ -23,9 +24,11 @@ from langchain.messages import ToolMessage
 from dotenv import load_dotenv
 
 from chat_history import get_checkpointer
+from subagents import init_grafico_agent
 from tools import (
     BQ_TABLE,
     get_consultar_bigquery_tool,
+    get_generar_grafico_tool,
     obtener_esquema_tabla,
     obtener_metadatos_tabla,
 )
@@ -39,6 +42,7 @@ RUTA_SYSTEM_PROMPT = BASE_DIR / "prompt" / "system_prompt.yaml"
 _llm = None
 _system_prompt: str | None = None
 _bigquery_tool = None
+_grafico_tool = None
 _checkpointer = None
 
 
@@ -66,8 +70,8 @@ def _render_system_prompt() -> str:
 
 
 def init_resources() -> None:
-    """Una vez al arrancar: LLM, prompt renderizado, tool y checkpointer."""
-    global _llm, _system_prompt, _bigquery_tool, _checkpointer
+    """Una vez al arrancar: LLM, prompt renderizado, tools, subagente y checkpointer."""
+    global _llm, _system_prompt, _bigquery_tool, _grafico_tool, _checkpointer
     if _llm is not None:
         return
     model_cfg = _cargar_yaml(RUTA_MODEL_CONFIG)["llm"]
@@ -77,6 +81,8 @@ def init_resources() -> None:
     )
     _system_prompt = _render_system_prompt()
     _bigquery_tool = get_consultar_bigquery_tool()
+    _grafico_tool = get_generar_grafico_tool()
+    init_grafico_agent()
     _checkpointer = get_checkpointer()
 
 
@@ -85,7 +91,7 @@ def build_agent():
     init_resources()
     return create_agent(
         model=_llm,
-        tools=[_bigquery_tool],
+        tools=[_bigquery_tool, _grafico_tool],
         system_prompt=_system_prompt,
         checkpointer=_checkpointer,
     )
@@ -93,11 +99,13 @@ def build_agent():
 
 def preguntar_detallado(pregunta: str, thread_id: str = "default") -> dict:
     """
-    Pregunta en lenguaje natural → dict con la respuesta y las consultas ejecutadas.
+    Pregunta en lenguaje natural → dict con la respuesta, las consultas y los gráficos.
 
-    Devuelve {"respuesta": str, "consultas": [{"sql", "ok", "gb_procesados",
-    "filas_devueltas", "error"}]}. Las consultas se extraen de los ToolMessage
-    generados en ESTE turno (los anteriores ya están en el checkpointer).
+    Devuelve {"respuesta": str,
+              "consultas": [{"sql", "ok", "gb_procesados", "filas_devueltas", "error"}],
+              "graficos": [dict "grafico" listo para ui.construir_figura]}.
+    Ambas listas se extraen de los ToolMessage generados en ESTE turno (los
+    anteriores ya están en el checkpointer), distinguidos por el nombre de la tool.
     """
     agent = build_agent()
     resultado = agent.invoke(
@@ -107,13 +115,15 @@ def preguntar_detallado(pregunta: str, thread_id: str = "default") -> dict:
     mensajes = resultado["messages"]
     # Índice del último mensaje humano: todo lo posterior pertenece a este turno.
     inicio = max(i for i, m in enumerate(mensajes) if m.type == "human")
-    consultas = []
+    consultas, graficos = [], []
     for m in mensajes[inicio:]:
-        if isinstance(m, ToolMessage):
-            try:
-                datos = json.loads(m.content)
-            except (json.JSONDecodeError, TypeError):
-                continue
+        if not isinstance(m, ToolMessage):
+            continue
+        try:
+            datos = json.loads(m.content)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if m.name == _bigquery_tool.name:
             consultas.append(
                 {
                     "sql": datos.get("sql"),
@@ -123,7 +133,9 @@ def preguntar_detallado(pregunta: str, thread_id: str = "default") -> dict:
                     "error": datos.get("error"),
                 }
             )
-    return {"respuesta": mensajes[-1].text, "consultas": consultas}
+        elif m.name == _grafico_tool.name and datos.get("ok"):
+            graficos.append(datos["grafico"])
+    return {"respuesta": mensajes[-1].text, "consultas": consultas, "graficos": graficos}
 
 
 def preguntar(pregunta: str, thread_id: str = "default") -> str:

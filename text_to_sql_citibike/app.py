@@ -2,9 +2,10 @@
 Entrypoint web del agente Text-to-SQL sobre CitiBike: chat en Streamlit.
 
 Capa de I/O: recibe la pregunta del usuario, la pasa a agent.preguntar_detallado()
-y muestra la respuesta (SQL generado + resultado + interpretación). Debajo de cada
-respuesta, un desplegable enseña las consultas que la tool ejecutó en BigQuery y
-los GB procesados. Mantiene un thread_id por sesión de navegador para que el
+y muestra la respuesta (SQL generado + resultado + interpretación). Si el agente
+llamó al subagente de gráficos, dibuja la figura con Plotly debajo de la respuesta.
+Un desplegable enseña las consultas que la tool ejecutó en BigQuery y los GB
+procesados. Mantiene un thread_id por sesión de navegador para que el
 agente recuerde el contexto de la conversación.
 
 Requiere OPENAI_API_KEY y GOOGLE_CLOUD_PROJECT en .env, y credenciales de GCP
@@ -23,6 +24,7 @@ from dotenv import load_dotenv
 
 import agent
 from tools import BQ_TABLE
+from ui import construir_figura
 
 load_dotenv()
 
@@ -87,16 +89,32 @@ def render_consultas(consultas: list[dict]) -> None:
                 st.caption(f"Error: {c['error']}")
 
 
-def render_mensaje(m: dict) -> None:
+def render_graficos(graficos: list[dict], clave: str) -> None:
+    """Dibuja cada especificación devuelta por el subagente de gráficos."""
+    for i, spec in enumerate(graficos):
+        try:
+            st.plotly_chart(construir_figura(spec), use_container_width=True, key=f"{clave}-{i}")
+        except Exception as e:  # noqa: BLE001 — un gráfico roto no debe ocultar la respuesta
+            st.warning(f"No se pudo dibujar el gráfico: {type(e).__name__}: {e}")
+            continue
+        pie = spec.get("justificacion", "")
+        if spec.get("ajuste"):
+            pie = f"{pie} {spec['ajuste']}"
+        if pie:
+            st.caption(f"📊 {pie}")
+
+
+def render_mensaje(m: dict, indice: int) -> None:
     with st.chat_message(m["rol"]):
         st.markdown(m["contenido"])
         if m["rol"] == "assistant":
+            render_graficos(m.get("graficos", []), clave=f"hist-{indice}")
             render_consultas(m.get("consultas", []))
 
 
 def responder(pregunta: str) -> None:
     st.session_state.mensajes.append({"rol": "user", "contenido": pregunta})
-    render_mensaje(st.session_state.mensajes[-1])
+    render_mensaje(st.session_state.mensajes[-1], indice=len(st.session_state.mensajes) - 1)
 
     with st.chat_message("assistant"):
         with st.spinner("Generando SQL y consultando BigQuery..."):
@@ -106,19 +124,26 @@ def responder(pregunta: str) -> None:
                 salida = {
                     "respuesta": f"❌ Ocurrió un error al procesar la pregunta: `{type(e).__name__}: {e}`",
                     "consultas": [],
+                    "graficos": [],
                 }
         st.markdown(salida["respuesta"])
+        render_graficos(salida["graficos"], clave=f"nuevo-{len(st.session_state.mensajes)}")
         render_consultas(salida["consultas"])
 
     st.session_state.mensajes.append(
-        {"rol": "assistant", "contenido": salida["respuesta"], "consultas": salida["consultas"]}
+        {
+            "rol": "assistant",
+            "contenido": salida["respuesta"],
+            "consultas": salida["consultas"],
+            "graficos": salida["graficos"],
+        }
     )
 
 
 def main() -> None:
     st.set_page_config(page_title=TITULO, page_icon="🚲", layout="wide")
     st.title(f"🚲 {TITULO}")
-    st.caption(f"Pregunta en lenguaje natural sobre `{BQ_TABLE}`. El agente genera el SQL, lo ejecuta y lo explica.")
+    st.caption(f"Pregunta en lenguaje natural sobre `{BQ_TABLE}`. El agente genera el SQL, lo ejecuta, lo explica y un subagente elige el gráfico.")
 
     faltantes = verificar_configuracion()
     if faltantes:
@@ -140,8 +165,8 @@ def main() -> None:
         st.divider()
         st.caption(f"Proyecto GCP: `{GOOGLE_CLOUD_PROJECT}`")
 
-    for m in st.session_state.mensajes:
-        render_mensaje(m)
+    for i, m in enumerate(st.session_state.mensajes):
+        render_mensaje(m, indice=i)
 
     pregunta = st.chat_input("Ej: ¿Cuál es la estación de salida más usada?")
     if not pregunta and "pregunta_pendiente" in st.session_state:
