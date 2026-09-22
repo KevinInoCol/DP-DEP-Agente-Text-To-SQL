@@ -40,6 +40,8 @@ text_to_sql_citibike/
 │   └── resultados_cache.py      ← caché por consulta_id (la tool de gráficos lee de aquí, no del LLM)
 ├── ui/
 │   └── graficos.py              ← dibuja la especificación con Plotly (capa de presentación)
+├── middlewares/
+│   └── enriquecimiento.py       ← exige gráfico y búsqueda web antes de cerrar la respuesta
 ├── observabilidad/
 │   └── tool_tracer.py           ← callback handler: qué tools usó el agente, en qué orden y cuánto tardaron
 ├── chat_history/
@@ -64,6 +66,7 @@ text_to_sql_citibike/
 | Campos de la especificación         | `subagents/grafico.py`   |
 | Colores, tamaños, estilo del gráfico| `ui/graficos.py`         |
 | Cómo se resume cada tool en la traza| `observabilidad/tool_tracer.py` |
+| Cuándo se exige gráfico o búsqueda  | `middlewares/enriquecimiento.py` |
 | Memoria persistente (Postgres)      | `chat_history/memory_store.py` |
 | Destino del feedback (Postgres, LangSmith) | `chat_history/feedback_store.py` |
 | Canal (Streamlit → FastAPI/CLI)     | `app.py`                 |
@@ -90,10 +93,14 @@ text_to_sql_citibike/
    `pastel`, `dispersion`), columnas, título, etiquetas. La tool valida que las columnas existan,
    degrada un pastel de más de 6 sectores a barras horizontales y devuelve la especificación con
    los datos ya preparados.
-5. Si la pregunta pide un "por qué" o el contexto externo aporta valor, y hay `TAVILY_API_KEY`,
-   el agente hace 1 o 2 búsquedas con `buscar_en_internet_tool` **al final**, y añade una
-   sección "Contexto adicional (fuentes web)" en tono de hipótesis, con las URLs devueltas por la
-   tool. Solo puede citar URLs que la tool devolvió; sin tool, sin enlaces.
+5. Si el resultado muestra un extremo, un ranking o una diferencia entre grupos, o si el agente va
+   a escribir una explicación causal, hace 1 o 2 búsquedas con `buscar_en_internet_tool` **al
+   final** y añade una sección "Contexto adicional (fuentes web)" en tono de hipótesis. Solo puede
+   citar URLs que la tool devolvió; sin tool, sin enlaces.
+   El middleware `ExigirEnriquecimiento` lo hace determinista: cuando el modelo va a cerrar la
+   respuesta, revisa el turno y, si falta el gráfico (tabla de 2+ filas) o la búsqueda (extremo,
+   ranking o lenguaje causal en la redacción), inyecta un aviso y lo devuelve al nodo del modelo
+   con `jump_to="model"`. Máximo 2 avisos por turno, así nunca entra en bucle.
 6. `agent.preguntar_detallado()` extrae de los `ToolMessage` del turno las consultas SQL, los
    gráficos y las fuentes web; `app.py` dibuja los gráficos con `ui.construir_figura()` y lista
    las fuentes en un desplegable debajo de la respuesta.
@@ -160,6 +167,9 @@ La librería de Google la toma automáticamente; no hace falta código extra.
 
 # Probar el trazador de tools con eventos simulados
 .venv/bin/python -m observabilidad.tool_tracer
+
+# Probar la lógica del middleware de calidad, sin LLM
+.venv/bin/python -m middlewares.enriquecimiento
 ```
 
 La interfaz muestra cada respuesta del agente (SQL, resultado, interpretación), el gráfico
@@ -200,6 +210,10 @@ Ejemplos de preguntas:
   transcripción de cifras y ahorra tokens.
 - **Un solo eje Y, un hue para magnitud, paleta categórica fija** (skill `dataviz`): sin
   ejes dobles ni pasteles de más de 6 sectores.
+- **Las reglas críticas no se dejan al prompt.** Pedir el gráfico y la búsqueda en el system
+  prompt no bastó: el modelo los omitía cuando la pregunta no decía literalmente "por qué". Un
+  middleware `after_model` revisa lo que realmente ocurrió en el turno y reclama la tool que
+  falta. El prompt sigue explicando el criterio; el middleware lo hace exigible.
 - **La traza se captura con callbacks, no leyendo los mensajes.** Los `ToolMessage` dicen qué
   devolvió cada tool, pero no cuándo empezó ni cuánto tardó; la duración es justo lo que permite
   ver si la lentitud viene de BigQuery, del subagente o de la web.

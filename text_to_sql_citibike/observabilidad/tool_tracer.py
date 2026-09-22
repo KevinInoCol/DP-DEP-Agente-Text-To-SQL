@@ -6,6 +6,10 @@ registra, en orden, qué tool se llamó, con qué argumentos, cuánto tardó y s
 salió bien. Se usa un trazador NUEVO por turno, así la traza nunca mezcla
 llamadas de mensajes distintos.
 
+Solo se registran las tools del agente: las llamadas anidadas (por ejemplo el
+tavily_search interno de buscar_en_internet_tool) se descartan comparando el
+parent_run_id, porque duplicarían el paso en la traza.
+
 Por qué callbacks y no leer los mensajes: los ToolMessage dicen QUÉ devolvió
 cada tool, pero no cuándo empezó ni cuánto tardó. La duración es justo lo que
 hace útil la traza para diagnosticar (una consulta lenta, un subagente que se
@@ -77,6 +81,8 @@ class TrazadorDeTools(BaseCallbackHandler):
     def __init__(self) -> None:
         self.llamadas: list[dict] = []
         self._por_run: dict[UUID, dict] = {}
+        self._ids_tools: set[UUID] = set()      # todas las tools vistas en el turno
+        self._anidadas: set[UUID] = set()       # tools internas: se ignoran
 
     # --- callbacks de LangChain ---
 
@@ -86,9 +92,15 @@ class TrazadorDeTools(BaseCallbackHandler):
         input_str: str,
         *,
         run_id: UUID,
+        parent_run_id: UUID | None = None,
         inputs: dict | None = None,
         **kwargs: Any,
     ) -> None:
+        self._ids_tools.add(run_id)
+        if parent_run_id in self._ids_tools:
+            # Tool invocada desde dentro de otra tool: ya la representa la externa.
+            self._anidadas.add(run_id)
+            return
         nombre = (serialized or {}).get("name") or kwargs.get("name") or "tool"
         argumentos = {k: _recortar(v) for k, v in (inputs or {}).items()} if inputs else {"input": _recortar(input_str)}
         entrada = {
@@ -103,6 +115,8 @@ class TrazadorDeTools(BaseCallbackHandler):
         self._por_run[run_id] = {"entrada": entrada, "inicio": time.perf_counter()}
 
     def on_tool_end(self, output: Any, *, run_id: UUID, **kwargs: Any) -> None:
+        if run_id in self._anidadas:
+            return
         registro = self._por_run.pop(run_id, None)
         if registro is None:
             return
@@ -111,6 +125,8 @@ class TrazadorDeTools(BaseCallbackHandler):
         entrada["duracion_s"] = round(time.perf_counter() - registro["inicio"], 2)
 
     def on_tool_error(self, error: BaseException, *, run_id: UUID, **kwargs: Any) -> None:
+        if run_id in self._anidadas:
+            return
         registro = self._por_run.pop(run_id, None)
         if registro is None:
             return
@@ -138,6 +154,9 @@ if __name__ == "__main__":
     t.on_tool_start({"name": "consultar_bigquery_tool"}, "", run_id=r1, inputs={"sql": "SELECT 1 " * 80})
     t.on_tool_end(json.dumps({"ok": True, "filas_devueltas": 3, "gb_procesados": 0.59}), run_id=r1)
     t.on_tool_start({"name": "generar_grafico_tool"}, "", run_id=r2, inputs={"consulta_id": "ab12", "pregunta": "¿rutas?"})
+    r_anidada = uuid4()  # tool interna: no debe aparecer en la traza
+    t.on_tool_start({"name": "tavily_search"}, "", run_id=r_anidada, parent_run_id=r2, inputs={"query": "x"})
+    t.on_tool_end("{}", run_id=r_anidada)
     t.on_tool_error(TimeoutError("se agotó el tiempo"), run_id=r2)
     print(json.dumps(t.traza(), indent=2, ensure_ascii=False))
     print("resumen:", t.resumen())

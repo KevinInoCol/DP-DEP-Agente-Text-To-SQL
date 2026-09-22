@@ -3,8 +3,8 @@ Orquestador del agente Text-to-SQL sobre CitiBike (BigQuery).
 
 Ensambla las piezas: LLM (model_config/), system prompt (prompt/), tools de
 BigQuery, gráficos e internet (tools/), subagente de visualización (subagents/),
-memoria (chat_history/) y traza de tools (observabilidad/). No contiene lógica
-de negocio. La tool de internet solo se registra si hay TAVILY_API_KEY; el
+memoria (chat_history/), middleware de calidad (middlewares/) y traza de tools
+(observabilidad/). No contiene lógica de negocio. La tool de internet solo se registra si hay TAVILY_API_KEY; el
 prompt se adapta en consecuencia.
 
 Patrón: init_resources() se llama UNA vez al arrancar y deja singletons de
@@ -26,6 +26,7 @@ from langchain.messages import ToolMessage
 from dotenv import load_dotenv
 
 from chat_history import get_checkpointer
+from middlewares import ExigirEnriquecimiento
 from observabilidad import TrazadorDeTools
 from subagents import init_grafico_agent
 from tools import (
@@ -118,6 +119,8 @@ def build_agent():
         tools=tools,
         system_prompt=_system_prompt,
         checkpointer=_checkpointer,
+        # El prompt pide gráfico y búsqueda; el middleware los exige de verdad.
+        middleware=[ExigirEnriquecimiento(con_web=_internet_tool is not None)],
     )
 
 

@@ -99,20 +99,29 @@ def get_buscar_en_internet_tool():
 
     @tool
     def buscar_en_internet_tool(consulta: str) -> str:
-        """Busca en internet contexto COMPLEMENTARIO para enriquecer una respuesta que
-        ya está respaldada por datos de BigQuery: por qué una ruta o estación es
-        popular (parques, atracciones, oficinas, transbordos), qué ocurrió en una
-        fecha con muchos o pocos viajes, qué es un programa o tarifa de CitiBike.
+        """Busca en internet el contexto que EXPLICA los datos que ya obtuviste de
+        BigQuery: por qué una estación o ruta es popular (parques, atracciones,
+        oficinas, transbordos), qué ocurrió en el mes o año con más viajes, a qué
+        se deben las diferencias entre grupos de usuarios, qué es un programa o
+        tarifa de CitiBike.
 
-        Úsala SOLO después de consultar_bigquery_tool y solo si el contexto externo
-        aporta valor a la pregunta. No la uses para obtener cifras de viajes,
-        duraciones ni rankings: esas vienen exclusivamente de la base de datos.
-        Máximo 2 búsquedas por respuesta. Devuelve título, URL y extracto de cada
-        fuente; cita las URLs que uses.
+        Llámala SIEMPRE, después de consultar_bigquery_tool, cuando el resultado
+        muestre un máximo o un mínimo, un ranking, una diferencia llamativa entre
+        grupos o una tendencia, y siempre que vayas a escribir una explicación
+        causal ("esto puede deberse a", "probablemente por"). No expliques de
+        memoria lo que puedes fundamentar con fuentes.
+
+        No la uses para obtener cifras: viajes, duraciones y rankings vienen
+        exclusivamente de la base de datos, y lo que encuentres aquí jamás las
+        corrige. Tampoco la uses en un conteo simple sin nada notable. Máximo 2
+        búsquedas por respuesta. Devuelve título, URL y extracto de cada fuente;
+        cita las URLs que uses.
 
         Args:
-            consulta: búsqueda concreta y específica, preferiblemente en inglés y
-                      con el contexto de Nueva York. Ejemplo:
+            consulta: búsqueda concreta y específica, en inglés, con el contexto de
+                      CitiBike y Nueva York y los valores concretos del resultado.
+                      Ejemplos:
+                      "Citi Bike New York record ridership October 2017 reasons"
                       "Central Park S & 6 Ave Citi Bike station popularity tourists"
         """
         return json.dumps(buscar_en_internet(consulta), ensure_ascii=False)
